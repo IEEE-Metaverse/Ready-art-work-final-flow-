@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-Scraper optimized for Railway deployment - simplified ChromeDriver handling
+Scraper optimized for Railway deployment with container-specific Chrome settings
 """
 
 import time
 import os
-import platform
-import subprocess
 from typing import Optional, List, Dict
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -22,7 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 RATEMYSITE_URL = "https://www.ratemysite.xyz/"
-DEFAULT_TIMEOUT = 45
+DEFAULT_TIMEOUT = 30  # Reduced timeout for faster response
 
 class WebsiteScraper:
     def __init__(self, headless=True, timeout=DEFAULT_TIMEOUT):
@@ -31,65 +29,99 @@ class WebsiteScraper:
         self.driver = None
         
     def _setup_driver(self):
-        """Setup Chrome driver optimized for Railway deployment"""
+        """Setup Chrome driver optimized for Railway container deployment"""
         chrome_opts = Options()
         
-        # Essential Chrome options for Railway
+        # Critical options for Railway container environment
         chrome_opts.add_argument("--headless=new")
         chrome_opts.add_argument("--no-sandbox")
         chrome_opts.add_argument("--disable-dev-shm-usage")
         chrome_opts.add_argument("--disable-gpu")
-        chrome_opts.add_argument("--disable-features=VizDisplayCompositor")
-        chrome_opts.add_argument("--disable-extensions")
-        chrome_opts.add_argument("--disable-plugins")
-        chrome_opts.add_argument("--window-size=1920,1080")
-        chrome_opts.add_argument("--single-process")
+        chrome_opts.add_argument("--disable-software-rasterizer")
         chrome_opts.add_argument("--disable-background-timer-throttling")
         chrome_opts.add_argument("--disable-backgrounding-occluded-windows")
         chrome_opts.add_argument("--disable-renderer-backgrounding")
-        chrome_opts.add_argument("--remote-debugging-port=9222")
+        chrome_opts.add_argument("--disable-features=TranslateUI")
+        chrome_opts.add_argument("--disable-ipc-flooding-protection")
+        chrome_opts.add_argument("--disable-features=VizDisplayCompositor")
         
-        # Memory optimizations for Railway
+        # Memory and resource optimizations for Railway
         chrome_opts.add_argument("--memory-pressure-off")
-        chrome_opts.add_argument("--max_old_space_size=2048")
+        chrome_opts.add_argument("--disable-features=VizDisplayCompositor")
+        chrome_opts.add_argument("--disable-extensions")
+        chrome_opts.add_argument("--disable-plugins")
+        chrome_opts.add_argument("--disable-images")
+        chrome_opts.add_argument("--disable-javascript")
+        chrome_opts.add_argument("--disable-web-security")
+        chrome_opts.add_argument("--allow-running-insecure-content")
+        
+        # Container-specific settings
+        chrome_opts.add_argument("--single-process")
+        chrome_opts.add_argument("--no-zygote")
+        chrome_opts.add_argument("--disable-setuid-sandbox")
+        chrome_opts.add_argument("--disable-dev-shm-usage")
+        
+        # Window and display settings
+        chrome_opts.add_argument("--window-size=1280,720")
+        chrome_opts.add_argument("--start-maximized")
+        chrome_opts.add_argument("--disable-infobars")
+        chrome_opts.add_argument("--disable-notifications")
+        
+        # Network and security settings
+        chrome_opts.add_argument("--ignore-certificate-errors")
+        chrome_opts.add_argument("--ignore-ssl-errors")
+        chrome_opts.add_argument("--ignore-certificate-errors-spki-list")
+        chrome_opts.add_argument("--ignore-certificate-errors-ssl-errors")
         
         # User agent
         chrome_opts.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
-        # Set Chrome binary path - Railway specific
-        if os.path.exists("/usr/bin/google-chrome-stable"):
-            chrome_opts.binary_location = "/usr/bin/google-chrome-stable"
-        elif os.path.exists("/usr/bin/google-chrome"):
-            chrome_opts.binary_location = "/usr/bin/google-chrome"
+        # Set Chrome binary path
+        chrome_opts.binary_location = "/usr/bin/google-chrome-stable"
         
-        # Use system ChromeDriver - should be at /usr/bin/chromedriver from Dockerfile
-        chromedriver_path = "/usr/bin/chromedriver"
+        # Disable logging to reduce noise
+        chrome_opts.add_argument("--log-level=3")
+        chrome_opts.add_argument("--silent")
+        chrome_opts.add_argument("--disable-logging")
+        chrome_opts.add_argument("--disable-gpu-logging")
         
-        if not os.path.exists(chromedriver_path):
-            # Fallback paths
-            fallback_paths = [
-                "/usr/local/bin/chromedriver",
-                "/opt/homebrew/bin/chromedriver",  # Mac development
-            ]
-            
-            for path in fallback_paths:
-                if os.path.exists(path):
-                    chromedriver_path = path
-                    break
-            else:
-                raise Exception(f"ChromeDriver not found. Expected at {chromedriver_path}")
+        # Additional Railway-specific settings
+        chrome_opts.add_argument("--remote-debugging-port=9222")
+        chrome_opts.add_argument("--remote-debugging-address=0.0.0.0")
         
-        print(f"Using ChromeDriver at: {chromedriver_path}")
         print(f"Using Chrome binary at: {chrome_opts.binary_location}")
+        print(f"Using ChromeDriver at: /usr/bin/chromedriver")
         
         try:
-            service = Service(chromedriver_path)
+            service = Service(
+                executable_path="/usr/bin/chromedriver",
+                log_path='/tmp/chromedriver.log'
+            )
             self.driver = webdriver.Chrome(service=service, options=chrome_opts)
+            
+            # Set timeouts
+            self.driver.set_page_load_timeout(self.timeout)
+            self.driver.implicitly_wait(10)
+            
             print("Chrome browser initialized successfully")
             return WebDriverWait(self.driver, self.timeout)
+            
         except Exception as e:
             print(f"Failed to initialize Chrome: {e}")
-            raise Exception(f"Could not initialize Chrome browser: {str(e)}")
+            # Try with additional fallback options
+            try:
+                chrome_opts.add_argument("--crash-dumps-dir=/tmp")
+                chrome_opts.add_argument("--user-data-dir=/tmp/chrome-user-data")
+                
+                self.driver = webdriver.Chrome(service=service, options=chrome_opts)
+                self.driver.set_page_load_timeout(self.timeout)
+                self.driver.implicitly_wait(10)
+                print("Chrome browser initialized with fallback options")
+                return WebDriverWait(self.driver, self.timeout)
+                
+            except Exception as e2:
+                print(f"Fallback Chrome initialization also failed: {e2}")
+                raise Exception(f"Could not initialize Chrome browser: {str(e2)}")
 
     def _find_first(self, xpaths: List[str]) -> Optional[object]:
         """Find first matching element from list of xpaths"""
@@ -109,10 +141,8 @@ class WebsiteScraper:
             "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'rate')]",
             "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'submit')]",
             "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'generate')]",
-            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'get report')]",
             "//button[@type='submit']",
             "//button",
-            "//div[@role='button']",
         ]
         btn = self._find_first(xpaths)
         if not btn:
@@ -120,6 +150,8 @@ class WebsiteScraper:
         try:
             if btn.is_enabled():
                 try:
+                    self.driver.execute_script("arguments[0].scrollIntoView();", btn)
+                    time.sleep(0.5)
                     btn.click()
                 except ElementClickInterceptedException:
                     self.driver.execute_script("arguments[0].click();", btn)
@@ -128,32 +160,14 @@ class WebsiteScraper:
             pass
         return False
 
-    def _maybe_close_cookie_banner(self):
-        """Close cookie banners if present"""
-        candidates = [
-            "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'accept')]",
-            "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'agree')]",
-            "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'allow')]",
-            "//button[contains(translate(.,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ok')]",
-            "//*[contains(@class,'cookie')]//button",
-            "//*[@id='onetrust-accept-btn-handler']",
-        ]
-        try:
-            btn = self._find_first(candidates)
-            if btn:
-                try:
-                    btn.click()
-                except ElementClickInterceptedException:
-                    self.driver.execute_script("arguments[0].click();", btn)
-                time.sleep(0.3)
-        except Exception:
-            pass
-
     def _collect_result_text(self) -> str:
         """Extract result text from the page"""
+        # Wait a bit for content to load
+        time.sleep(2)
+        
         containers = self.driver.find_elements(
             By.XPATH,
-            "//*[contains(@class,'result') or contains(@class,'report') or contains(@class,'output') or @role='article']",
+            "//*[contains(@class,'result') or contains(@class,'report') or contains(@class,'output')]",
         )
         texts = [c.text.strip() for c in containers if c.text and c.text.strip()]
         if texts:
@@ -165,18 +179,6 @@ class WebsiteScraper:
             return (body.text or "").strip()
         except Exception:
             return ""
-
-    def _wait_for_content_growth(self, wait: WebDriverWait, min_growth: int = 80) -> None:
-        """Wait for page content to grow (JS rendering)"""
-        try:
-            initial_len = len(self.driver.find_element(By.TAG_NAME, "body").text)
-        except Exception:
-            initial_len = 0
-
-        try:
-            wait.until(lambda d: len(d.find_element(By.TAG_NAME, "body").text) > initial_len + min_growth)
-        except TimeoutException:
-            pass
 
     def scrape_single_url(self, target_url: str) -> Dict[str, str]:
         """Scrape a single URL and return results"""
@@ -199,22 +201,20 @@ class WebsiteScraper:
         try:
             print(f"Navigating to RateMySite...")
             self.driver.get(RATEMYSITE_URL)
-            self._maybe_close_cookie_banner()
+            time.sleep(2)
 
-            # Find URL input
-            input_xpaths = [
-                "//input[@type='url']",
-                "//input[contains(@placeholder,'https')]",
-                "//input[contains(@placeholder,'http')]",
-                "//input[contains(@placeholder,'Enter') or contains(@placeholder,'enter')]",
-                "//input",
-                "//textarea",
-            ]
-            
+            # Find URL input - simplified approach
+            input_el = None
             try:
-                input_el = wait.until(EC.presence_of_element_located((By.XPATH, "|".join(input_xpaths))))
-            except Exception:
-                input_el = self._find_first(input_xpaths)
+                input_el = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='url']")))
+            except:
+                try:
+                    input_el = self.driver.find_element(By.XPATH, "//input[contains(@placeholder,'http')]")
+                except:
+                    try:
+                        input_el = self.driver.find_element(By.XPATH, "//input")
+                    except:
+                        pass
 
             if not input_el:
                 result['status'] = 'error'
@@ -222,35 +222,19 @@ class WebsiteScraper:
                 return result
 
             print(f"Entering URL: {target_url}")
-            # Enter URL
-            try:
-                input_el.clear()
-            except Exception:
-                pass
+            input_el.clear()
             input_el.send_keys(target_url)
-            time.sleep(0.3)
+            time.sleep(1)
 
             print("Submitting for analysis...")
-            # Submit
+            # Try to submit
             clicked = self._click_best_button()
             if not clicked:
-                try:
-                    input_el.send_keys("\n")
-                except Exception:
-                    pass
+                input_el.send_keys("\n")
 
             print("Waiting for results...")
-            # Wait for results
-            try:
-                wait.until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, "//*[contains(@class,'result') or contains(@class,'report') or @role='article']")
-                    )
-                )
-            except TimeoutException:
-                self._wait_for_content_growth(wait, min_growth=120)
-
-            time.sleep(1.0)  # Grace period
+            # Wait for results with simpler approach
+            time.sleep(15)  # Give more time for analysis
 
             # Extract content
             content = self._collect_result_text()
