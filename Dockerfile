@@ -1,11 +1,12 @@
 FROM python:3.11-slim
 
-# Install essential packages only
+# Install essential packages including gnupg
 RUN apt-get update && apt-get install -y \
     wget \
     curl \
     unzip \
     ca-certificates \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Chrome
