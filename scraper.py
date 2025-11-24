@@ -156,25 +156,20 @@ class WebsiteScraper:
             submit_selectors = [
                 "button[type='submit']",
                 "input[type='submit']",
-                "button:contains('Analyze')",
-                "button:contains('Submit')",
-                "button:contains('Start')",
-                "button:contains('Rate')",
                 ".submit-btn",
                 ".analyze-btn",
                 "button"
             ]
             
+            # Handle text-based button searches separately
+            text_searches = ["Analyze", "Submit", "Start", "Rate"]
+            
             submitted = False
+            
+            # First try CSS selectors
             for selector in submit_selectors:
                 try:
-                    if ':contains(' in selector:
-                        # Use XPath for text-based selectors
-                        xpath = f"//button[contains(text(), '{selector.split('(')[1].split(')')[0].strip('\"')}')]"
-                        buttons = self.driver.find_elements(By.XPATH, xpath)
-                    else:
-                        buttons = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    
+                    buttons = self.driver.find_elements(By.CSS_SELECTOR, selector)
                     for button in buttons:
                         if button.is_displayed() and button.is_enabled():
                             print(f"Found submit button: {selector}")
@@ -188,6 +183,26 @@ class WebsiteScraper:
                 except Exception as e:
                     print(f"Button selector {selector} failed: {e}")
                     continue
+            
+            # Then try text-based searches using XPath
+            if not submitted:
+                for text in text_searches:
+                    try:
+                        xpath = f"//button[contains(text(), '{text}')]"
+                        buttons = self.driver.find_elements(By.XPATH, xpath)
+                        for button in buttons:
+                            if button.is_displayed() and button.is_enabled():
+                                print(f"Found submit button with text: {text}")
+                                self.driver.execute_script("arguments[0].scrollIntoView();", button)
+                                time.sleep(1)
+                                self.driver.execute_script("arguments[0].click();", button)
+                                submitted = True
+                                break
+                        if submitted:
+                            break
+                    except Exception as e:
+                        print(f"Text search for '{text}' failed: {e}")
+                        continue
             
             if not submitted:
                 print("No submit button found, trying Enter key...")
