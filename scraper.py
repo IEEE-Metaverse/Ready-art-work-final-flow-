@@ -1,184 +1,107 @@
 #!/usr/bin/env python3
 """
-Scraper optimized for Railway deployment with container-specific Chrome settings
+Scraper optimized for Railway with improved Chrome handling
 """
 
 import time
 import os
+import tempfile
+import shutil
 from typing import Optional, List, Dict
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import (
-    TimeoutException,
-    NoSuchElementException,
-    ElementClickInterceptedException,
-    StaleElementReferenceException,
-)
+from selenium.common.exceptions import *
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 RATEMYSITE_URL = "https://www.ratemysite.xyz/"
-DEFAULT_TIMEOUT = 30  # Reduced timeout for faster response
+DEFAULT_TIMEOUT = 20
 
 class WebsiteScraper:
     def __init__(self, headless=True, timeout=DEFAULT_TIMEOUT):
         self.headless = headless
         self.timeout = timeout
         self.driver = None
+        self.temp_dir = None
         
     def _setup_driver(self):
-        """Setup Chrome driver optimized for Railway container deployment"""
-        chrome_opts = Options()
-        
-        # Critical options for Railway container environment
-        chrome_opts.add_argument("--headless=new")
-        chrome_opts.add_argument("--no-sandbox")
-        chrome_opts.add_argument("--disable-dev-shm-usage")
-        chrome_opts.add_argument("--disable-gpu")
-        chrome_opts.add_argument("--disable-software-rasterizer")
-        chrome_opts.add_argument("--disable-background-timer-throttling")
-        chrome_opts.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_opts.add_argument("--disable-renderer-backgrounding")
-        chrome_opts.add_argument("--disable-features=TranslateUI")
-        chrome_opts.add_argument("--disable-ipc-flooding-protection")
-        chrome_opts.add_argument("--disable-features=VizDisplayCompositor")
-        
-        # Memory and resource optimizations for Railway
-        chrome_opts.add_argument("--memory-pressure-off")
-        chrome_opts.add_argument("--disable-features=VizDisplayCompositor")
-        chrome_opts.add_argument("--disable-extensions")
-        chrome_opts.add_argument("--disable-plugins")
-        chrome_opts.add_argument("--disable-images")
-        chrome_opts.add_argument("--disable-javascript")
-        chrome_opts.add_argument("--disable-web-security")
-        chrome_opts.add_argument("--allow-running-insecure-content")
-        
-        # Container-specific settings
-        chrome_opts.add_argument("--single-process")
-        chrome_opts.add_argument("--no-zygote")
-        chrome_opts.add_argument("--disable-setuid-sandbox")
-        chrome_opts.add_argument("--disable-dev-shm-usage")
-        
-        # Window and display settings
-        chrome_opts.add_argument("--window-size=1280,720")
-        chrome_opts.add_argument("--start-maximized")
-        chrome_opts.add_argument("--disable-infobars")
-        chrome_opts.add_argument("--disable-notifications")
-        
-        # Network and security settings
-        chrome_opts.add_argument("--ignore-certificate-errors")
-        chrome_opts.add_argument("--ignore-ssl-errors")
-        chrome_opts.add_argument("--ignore-certificate-errors-spki-list")
-        chrome_opts.add_argument("--ignore-certificate-errors-ssl-errors")
-        
-        # User agent
-        chrome_opts.add_argument("--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        
-        # Set Chrome binary path
-        chrome_opts.binary_location = "/usr/bin/google-chrome-stable"
-        
-        # Disable logging to reduce noise
-        chrome_opts.add_argument("--log-level=3")
-        chrome_opts.add_argument("--silent")
-        chrome_opts.add_argument("--disable-logging")
-        chrome_opts.add_argument("--disable-gpu-logging")
-        
-        # Additional Railway-specific settings
-        chrome_opts.add_argument("--remote-debugging-port=9222")
-        chrome_opts.add_argument("--remote-debugging-address=0.0.0.0")
-        
-        print(f"Using Chrome binary at: {chrome_opts.binary_location}")
-        print(f"Using ChromeDriver at: /usr/bin/chromedriver")
-        
+        """Setup Chrome driver with Railway-optimized settings"""
         try:
+            # Create temporary directory for Chrome data
+            self.temp_dir = tempfile.mkdtemp()
+            
+            chrome_opts = Options()
+            
+            # Critical Railway settings
+            chrome_opts.add_argument("--headless=new")
+            chrome_opts.add_argument("--no-sandbox")
+            chrome_opts.add_argument("--disable-dev-shm-usage")
+            chrome_opts.add_argument("--disable-gpu")
+            chrome_opts.add_argument("--remote-debugging-port=9222")
+            
+            # Data directory settings
+            chrome_opts.add_argument(f"--user-data-dir={self.temp_dir}")
+            chrome_opts.add_argument(f"--crash-dumps-dir={self.temp_dir}")
+            chrome_opts.add_argument("--disable-dev-shm-usage")
+            
+            # Process and memory settings
+            chrome_opts.add_argument("--single-process")
+            chrome_opts.add_argument("--no-zygote")
+            chrome_opts.add_argument("--disable-setuid-sandbox")
+            
+            # Window settings
+            chrome_opts.add_argument("--window-size=1280,720")
+            chrome_opts.add_argument("--disable-web-security")
+            chrome_opts.add_argument("--allow-running-insecure-content")
+            
+            # Disable features that can cause issues
+            chrome_opts.add_argument("--disable-features=VizDisplayCompositor")
+            chrome_opts.add_argument("--disable-extensions")
+            chrome_opts.add_argument("--disable-plugins")
+            chrome_opts.add_argument("--disable-background-timer-throttling")
+            chrome_opts.add_argument("--disable-backgrounding-occluded-windows")
+            chrome_opts.add_argument("--disable-renderer-backgrounding")
+            
+            # Set Chrome binary
+            chrome_opts.binary_location = "/usr/bin/google-chrome-stable"
+            
+            # Logging settings
+            chrome_opts.add_argument("--log-level=3")
+            chrome_opts.add_argument("--silent")
+            
+            print(f"Chrome binary: {chrome_opts.binary_location}")
+            print(f"Temp directory: {self.temp_dir}")
+            
+            # Initialize service
             service = Service(
                 executable_path="/usr/bin/chromedriver",
-                log_path='/tmp/chromedriver.log'
+                log_path=os.path.join(self.temp_dir, "chromedriver.log")
             )
+            
+            # Create driver
             self.driver = webdriver.Chrome(service=service, options=chrome_opts)
             
             # Set timeouts
             self.driver.set_page_load_timeout(self.timeout)
-            self.driver.implicitly_wait(10)
+            self.driver.implicitly_wait(5)
             
-            print("Chrome browser initialized successfully")
+            print("Chrome driver initialized successfully")
             return WebDriverWait(self.driver, self.timeout)
             
         except Exception as e:
             print(f"Failed to initialize Chrome: {e}")
-            # Try with additional fallback options
+            self._cleanup_temp_dir()
+            raise Exception(f"Chrome initialization failed: {str(e)}")
+
+    def _cleanup_temp_dir(self):
+        """Clean up temporary directory"""
+        if self.temp_dir and os.path.exists(self.temp_dir):
             try:
-                chrome_opts.add_argument("--crash-dumps-dir=/tmp")
-                chrome_opts.add_argument("--user-data-dir=/tmp/chrome-user-data")
-                
-                self.driver = webdriver.Chrome(service=service, options=chrome_opts)
-                self.driver.set_page_load_timeout(self.timeout)
-                self.driver.implicitly_wait(10)
-                print("Chrome browser initialized with fallback options")
-                return WebDriverWait(self.driver, self.timeout)
-                
-            except Exception as e2:
-                print(f"Fallback Chrome initialization also failed: {e2}")
-                raise Exception(f"Could not initialize Chrome browser: {str(e2)}")
-
-    def _find_first(self, xpaths: List[str]) -> Optional[object]:
-        """Find first matching element from list of xpaths"""
-        for xp in xpaths:
-            try:
-                el = self.driver.find_element(By.XPATH, xp)
-                if el and el.is_displayed():
-                    return el
-            except (NoSuchElementException, StaleElementReferenceException):
-                continue
-        return None
-
-    def _click_best_button(self) -> bool:
-        """Try to click analysis/submit button"""
-        xpaths = [
-            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'analy')]",
-            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'rate')]",
-            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'submit')]",
-            "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'generate')]",
-            "//button[@type='submit']",
-            "//button",
-        ]
-        btn = self._find_first(xpaths)
-        if not btn:
-            return False
-        try:
-            if btn.is_enabled():
-                try:
-                    self.driver.execute_script("arguments[0].scrollIntoView();", btn)
-                    time.sleep(0.5)
-                    btn.click()
-                except ElementClickInterceptedException:
-                    self.driver.execute_script("arguments[0].click();", btn)
-                return True
-        except Exception:
-            pass
-        return False
-
-    def _collect_result_text(self) -> str:
-        """Extract result text from the page"""
-        # Wait a bit for content to load
-        time.sleep(2)
-        
-        containers = self.driver.find_elements(
-            By.XPATH,
-            "//*[contains(@class,'result') or contains(@class,'report') or contains(@class,'output')]",
-        )
-        texts = [c.text.strip() for c in containers if c.text and c.text.strip()]
-        if texts:
-            return "\n\n".join(texts).strip()
-
-        # Fallback to body text
-        try:
-            body = self.driver.find_element(By.TAG_NAME, "body")
-            return (body.text or "").strip()
-        except Exception:
-            return ""
+                shutil.rmtree(self.temp_dir)
+            except Exception as e:
+                print(f"Failed to cleanup temp directory: {e}")
 
     def scrape_single_url(self, target_url: str) -> Dict[str, str]:
         """Scrape a single URL and return results"""
@@ -190,56 +113,99 @@ class WebsiteScraper:
         }
         
         try:
-            print(f"Setting up browser for {target_url}...")
+            print(f"Starting analysis for: {target_url}")
             wait = self._setup_driver()
-        except Exception as e:
-            result['status'] = 'error'
-            result['error'] = f'Failed to initialize browser: {str(e)}'
-            print(f"Browser setup failed: {e}")
-            return result
-        
-        try:
-            print(f"Navigating to RateMySite...")
+            
+            print("Navigating to RateMySite...")
             self.driver.get(RATEMYSITE_URL)
-            time.sleep(2)
+            time.sleep(3)
 
-            # Find URL input - simplified approach
+            # Find input field
+            print("Looking for input field...")
             input_el = None
-            try:
-                input_el = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@type='url']")))
-            except:
+            input_selectors = [
+                "input[type='url']",
+                "input[placeholder*='http']",
+                "input[placeholder*='website']",
+                "input",
+                "textarea"
+            ]
+            
+            for selector in input_selectors:
                 try:
-                    input_el = self.driver.find_element(By.XPATH, "//input[contains(@placeholder,'http')]")
+                    input_el = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    if input_el.is_displayed():
+                        break
                 except:
-                    try:
-                        input_el = self.driver.find_element(By.XPATH, "//input")
-                    except:
-                        pass
-
+                    continue
+            
             if not input_el:
-                result['status'] = 'error'
-                result['error'] = 'Could not locate input field on RateMySite'
-                return result
+                raise Exception("Could not find input field on RateMySite")
 
             print(f"Entering URL: {target_url}")
             input_el.clear()
             input_el.send_keys(target_url)
-            time.sleep(1)
+            time.sleep(2)
 
-            print("Submitting for analysis...")
-            # Try to submit
-            clicked = self._click_best_button()
-            if not clicked:
+            # Submit form
+            print("Submitting form...")
+            try:
+                # Try to find submit button
+                submit_selectors = [
+                    "button[type='submit']",
+                    "button:contains('Analyze')",
+                    "button:contains('Submit')",
+                    "button",
+                    "input[type='submit']"
+                ]
+                
+                submitted = False
+                for selector in submit_selectors:
+                    try:
+                        btn = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        if btn.is_displayed() and btn.is_enabled():
+                            self.driver.execute_script("arguments[0].click();", btn)
+                            submitted = True
+                            break
+                    except:
+                        continue
+                
+                if not submitted:
+                    # Fallback: press Enter
+                    input_el.send_keys("\n")
+                
+            except Exception as e:
+                print(f"Submit failed, trying Enter key: {e}")
                 input_el.send_keys("\n")
 
             print("Waiting for results...")
-            # Wait for results with simpler approach
-            time.sleep(15)  # Give more time for analysis
-
+            # Wait longer for analysis to complete
+            time.sleep(20)
+            
+            # Try to find results
+            try:
+                wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            except:
+                pass
+            
             # Extract content
-            content = self._collect_result_text()
-            result['content'] = content if content else 'Analysis completed but no detailed content found'
-            print(f"Analysis complete for {target_url}")
+            print("Extracting content...")
+            content = ""
+            
+            # Get page text
+            try:
+                body = self.driver.find_element(By.TAG_NAME, "body")
+                content = body.text or ""
+            except Exception as e:
+                print(f"Failed to extract body text: {e}")
+                content = ""
+            
+            if content and len(content) > 100:
+                result['content'] = content
+                print(f"Successfully extracted {len(content)} characters")
+            else:
+                result['content'] = "Analysis completed but limited content extracted"
+                print("Limited content extracted")
             
         except Exception as e:
             result['status'] = 'error'
@@ -247,12 +213,15 @@ class WebsiteScraper:
             print(f"Error analyzing {target_url}: {e}")
             
         finally:
+            # Cleanup
             if self.driver:
                 try:
                     self.driver.quit()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Error closing driver: {e}")
                 self.driver = None
+            
+            self._cleanup_temp_dir()
                 
         return result
 
@@ -260,7 +229,7 @@ class WebsiteScraper:
         """Scrape multiple URLs"""
         results = []
         for url in urls:
-            if url.strip():  # Only process non-empty URLs
+            if url.strip():
                 result = self.scrape_single_url(url.strip())
                 results.append(result)
         return results
